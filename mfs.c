@@ -29,6 +29,7 @@ struct __attribute__((__packed__)) DirectoryEntry {
 struct Node{
 	int dir_offset; 
 	int par_offset; 
+	char name[11]; 
 	struct Node *next; 
 	struct Node *prev; 
 };
@@ -37,10 +38,9 @@ struct Node *current = NULL;
 struct Node *previous = NULL; 
 
 bool 		isEmpty(struct Node*); 
-struct Node* 	insertEnd( struct Node*, int, int ); 
-//struct Node *deleteLast(); 
+struct Node* 	insertEnd( struct Node*, char *, int, int ); 
 void  		displayList( struct Node* ); 
-struct Node*  	makeDummyList( struct Node* );  
+//struct Node*  	makeDummyList( struct Node* );  
 struct Node* 	get_prev_node( struct Node* ); 
 struct Node* 	deleteLast( struct Node* ); 
 
@@ -62,6 +62,11 @@ void 	do_stat(struct DirectoryEntry *, char *);
 int 	do_cd(FILE*, struct DirectoryEntry *, char *); 
 void 	do_volume(); 
 void 	do_ls(FILE *); 
+int 	check_cd(char *); 
+void 	cd_mode1(FILE *); 
+void 	cd_mode2(FILE *); 
+void 	cd_mode3(FILE *); 
+void 	cd_mode4(FILE *); 
 
 
 char 	BS_OEMName[8]; 
@@ -124,10 +129,8 @@ int main()
 			cur_dir_ptr = "root";
 			next_offset = rootAddress;    
 			current_offset = 2; 
-			printf("\nBEFORE MAKE DUMMY LIST\n"); 
-			head = insertEnd( head, next_offset, current_offset  ); 
-			printf("\nAFTER MAKE DUMMY LIST\n"); 
-			displayList(head);
+			head = insertEnd( head, cur_dir_ptr, next_offset, current_offset  ); 
+		//	displayList(head);
  		}
 		else if (strcmp(token[0], "info") == 0)
 		{
@@ -144,26 +147,36 @@ int main()
 			do_volume(); 
 		}
 		else if (strcmp( token[0], "cd" ) == 0) {
-			if(strcmp( token[1], ".." ) != 0) {
-				current_offset = next_offset; 		
-				next_offset = do_cd(fp, d, token[1]);	//get the offset for new directory.
-				getDirectories(fp, next_offset);  
-				//printDirectories(fp);
-				cur_dir_ptr = token[1];  
-				head = insertEnd(head, next_offset, current_offset); //add link to offset list.
-				displayList(head);
-			}
-			else if(strcmp( token[1], "..") == 0) {
-				struct Node * node; 
-				node = get_prev_node(head); 	
-				next_offset = node->dir_offset; 
-				current_offset = node->par_offset; 
-				head = deleteLast(head); 
+			int done = 0;
+			int length = strlen(token[1]);  
+			while( !done ){
 
-				getDirectories(fp, next_offset ); 
-				displayList(head); 
-			}	
+				int cd_mode; 
+				cd_mode = check_cd( token[1] ); 
+				printf("CD MODE: %d\n", cd_mode); 	
+		
+				//mode 2: cd ..
+				if( cd_mode == 2 ){
+					cd_mode2(fp); 
+				}
+				//mode 3: cd ../filename
+				else if( cd_mode == 3 ) {
+					cd_mode3(fp); 
+				}	
+				//mode 1: cd filename
+				else if( cd_mode == 1 ) {
+					cd_mode1(fp); 	
+				}
+				else if( cd_mode == 4 ) {
+					cd_mode4(fp); 
+				}
+				else{
+					printf("SOME OTHER MODE\n"); 
+				}
+			}
+
 		}
+		
 		token[0] = NULL;
 	}	
   
@@ -244,7 +257,6 @@ void   getInfo(FILE *fp){
 	fseek( fp, 44, SEEK_SET); 
 	fread( &BPB_RootClus, 1, 4, fp ); 
 	
-//	return fp; 
 }
 
 
@@ -266,7 +278,6 @@ long    getBPBsize(void){
 }
 
 void getDirectories(FILE *fp, int offset){
-	printf( "OFFSET: %d \n", offset ); 
 	int i; 
 	for (i = 0; i < 16; i++ ){
 		memset( &dir[i], 0, 32);  
@@ -330,9 +341,6 @@ void do_stat( struct DirectoryEntry *directory, char *filename){
 }
 
 
-
-
-
 char** make_file_list(FILE *fp){
 	int i;
 	char ** name_array_ptr = NULL;  
@@ -340,15 +348,7 @@ char** make_file_list(FILE *fp){
 	for( i = 0; i < 16; i++){
 		name_array_ptr[i] = malloc(11 * sizeof(char)); 
 	} 
-//	char temp[11]; 
-//	char *temp_ptr; 
-//	temp_ptr = malloc(11 * sizeof(char)); 	
-//	temp_ptr = temp; 
 	dir_ptr = dir[0].DIR_Name; 
-//	memcpy(name_array_ptr[0], dir_ptr, 11 ); 
-//	memcpy(temp_ptr, name_array_ptr[0], 11);
-//	memcpy(name_array_ptr[0], temp_ptr, 11); 
-//	name_array_ptr[0] = temp_ptr;		
 	for( i = 0; i < 16; i++ ){ 
 		if( dir[i].DIR_Attr == 0x01 || dir[i].DIR_Attr == 0x10 
 			|| dir[i].DIR_Attr == 0x20 ){ 
@@ -407,33 +407,31 @@ void do_ls(FILE *fp){
 	int i; 
 	printf("\n"); 
 	for ( i = 0; i < 16; i++ ){
-		printf("\n"); 
 		if( dir[i].DIR_Attr == 0x01 || dir[i].DIR_Attr == 0x10 
 			|| dir[i].DIR_Attr == 0x20 ){ 
 			printf("%s\n", dir[i].DIR_Name); 
 		}
 	}
+	printf("\n"); 
 }
 
 bool isEmpty(struct Node* head){
 	return (head == NULL); 
 }
 //BUG: doesn't detect of starting with an empty list. first node values are just (0 ,0)
-struct Node * insertEnd(struct Node* head, int dir_off, int par_off){
+struct Node * insertEnd(struct Node* head, char* cur_dir_ptr, int dir_off, int par_off){
 	current = head; 
-	//create link 
 	struct Node *link = (struct Node*) malloc(sizeof(struct Node)); 
 	link->dir_offset = dir_off; 
 	link->par_offset = par_off;
+	strcpy(link->name, cur_dir_ptr); 
 	link->next = NULL; 
 
 	if ( isEmpty(head) ){
-	//make it the last link
 		printf("\nEMPTY\n"); 
 		head = link;
 	}
 	else{
-		//find end of list
 		while(current->next != NULL){
 			current = current->next; 
 		}
@@ -445,7 +443,6 @@ struct Node * insertEnd(struct Node* head, int dir_off, int par_off){
 struct Node *deleteLast(struct Node* head){
 	struct Node* temp = head; 
 	struct Node* t; 
-	//if only one link
 	if( head->next == NULL ){
 		free( head ); 
 		head = NULL; 
@@ -462,10 +459,8 @@ struct Node *deleteLast(struct Node* head){
 }
 
 void displayList(struct Node *head){
-	//start from beginning
 	struct Node *ptr = (struct Node*) malloc(sizeof(struct Node)); 
  	ptr = head; 
-	//navigate till end of list
 	printf("\n[ "); 
 	
 	while(ptr != NULL){
@@ -474,7 +469,7 @@ void displayList(struct Node *head){
 	}
 	printf(" ]\n"); 
 }
-
+/*
 struct Node * makeDummyList(struct Node *head){
 	head = insertEnd( head, 15, 40); 
 	head = insertEnd( head, 60, 30); 
@@ -482,6 +477,7 @@ struct Node * makeDummyList(struct Node *head){
 	head = insertEnd( head, 23, 24);
 	return head;  
 }
+*/
 //returns the second to last node for cd ..
 struct Node* get_prev_node(struct Node* head){
 	struct Node* prev = (struct Node*) malloc(sizeof(struct Node)); 
@@ -499,9 +495,127 @@ struct Node* get_prev_node(struct Node* head){
 	}
 		return prev; 
 }
+//1: cd ..
+//2: cd ../filename
+//3: cd filename
+//4: cd /
+int check_cd(char* input){
+	
+	printf("INPUT: %s\n", input); 
 
-
+	int length = strlen(input); 
+	if ( length == 2 && ((strcmp(input, "..")) == 0 )){
+		return 2; 
+	}
+	else if( length > 2 && ( input[0] == '.' ) && ( input[1] == '.' ) 
+					           && ( input[2] == '/' ) ){
+		return 3; 
+	}
+	else if( length > 2 && ( input[0] == '.' ) && ( input[1] == '.' ) 
+				           && ( input[2] != '/' ) ){
+		printf("Error: Invalid input\n"); 
+		return -1; 
+	}
+	else if( input[0] == '/' ){
+		return 4; 
+	}
+	else {
+		return 1; 
+	}
+}
+		
 
 
 //ROOT DIRECTORY PARENT OFFSET
 	
+//mode1 : cd filename
+
+void cd_mode1(FILE *fp ){
+	current_offset = next_offset; 		
+	next_offset = do_cd(fp, d, token[1]);	//get the offset for new directory.
+	getDirectories(fp, next_offset);  
+	cur_dir_ptr = token[1];  
+	head = insertEnd(head, cur_dir_ptr, next_offset, current_offset); //add link to offset list.
+	
+
+//	displayList(head);
+//	printf("MODE 3\n"); 
+}
+
+
+//mode 2: cd ..
+void cd_mode2(FILE *fp ){			
+	struct Node * node; 
+	node = get_prev_node(head); 	
+	next_offset = node->dir_offset; 
+	current_offset = node->par_offset; 
+	cur_dir_ptr = node->name; 
+	head = deleteLast(head); 
+				
+	getDirectories(fp, next_offset ); 
+	//displayList(head); 
+	//printf("MODE 1\n"); 
+}
+
+
+//mode 3: cd ../filename
+void cd_mode3(FILE *fp ){				
+
+//get filename (chop off '../'
+	char *token_ptr; 
+	token_ptr = token[1]; 
+	token_ptr = token_ptr + 3; 
+	
+	cd_mode2(fp); 
+	//cd mode 3 protocol
+	current_offset = next_offset; 		
+	next_offset = do_cd(fp, d, token_ptr);	//get the offset for new directory.
+	getDirectories(fp, next_offset);  
+	cur_dir_ptr = token_ptr;  
+	head = insertEnd(head, cur_dir_ptr, next_offset, current_offset); //add link to offset list.
+				
+	//displayList(head); 
+}
+void cd_mode4(FILE *fp) {
+	while( head->next->next != NULL ){
+		cd_mode2(fp); 
+	}
+	char *token_ptr; 
+	token_ptr = token[1]; 
+	token_ptr = token_ptr + 1; 
+	
+}
+/*
+void cd_error( ){
+	printf("Error: invalid input.\n");  
+}
+*/
+
+
+
+
+
+
+		
+	/*
+					struct Node * node; 
+					node = get_prev_node(head); 	
+					next_offset = node->dir_offset; 
+					current_offset = node->par_offset; 
+					cur_dir_ptr = node->name; 
+					head = deleteLast(head); 
+					getDirectories(fp, next_offset ); 
+					//get filename (chop off '../'
+					char *token_ptr; 
+					token_ptr = token[1]; 
+					token_ptr = token_ptr + 3; 
+					//cd mode 3 protocol
+					current_offset = next_offset; 		
+					next_offset = do_cd(fp, d, token_ptr);	//get the offset for new directory.
+					getDirectories(fp, next_offset);  
+					cur_dir_ptr = token_ptr;  
+					head = insertEnd(head, cur_dir_ptr, next_offset, current_offset); //add link to offset list.
+					
+					displayList(head); 
+				}*/
+		
