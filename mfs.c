@@ -1,3 +1,13 @@
+// Megan Myers 1001227368
+//
+// Program 4: FAT32
+//
+// NOTE: to use cd command, don't include file extension. 
+// 	 ex: cd NUM
+//     	 not cd NUM.txt
+
+
+
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -136,23 +146,28 @@ int main()
 		//If command if "open filename" 
 		if (strcmp(token[0], "open") == 0)	
 		{
-			fp = open_file( token[1] );	//Open the image file.
-			is_open = 1;  
-			getInfo(fp);			//Get the BPB info. 
-			volume = BS_VolLab;  		//Get the volume name. 
-	
-			BPBsize = getBPBsize(); 	//Calculate BPBsize for later use. 
-			unsigned int rootAddress; 	//Calculate root address. 
-			rootAddress = (BPB_NumFATs * BPB_FATSz32 * BPB_BytsPerSec) +
-					(BPB_RsvdSecCnt * BPB_BytsPerSec);  
-	 		getDirectories(fp, rootAddress); //Populate dir[16] with root's directories. 	
-			cur_dir_ptr = "root";		 //Set cur_dir_ptr to "root" so it can be 
-			next_offset = rootAddress;    	 //	displayed in mfs> prompt. 	
-			current_offset = 2; 		 //Set root's parent offset to 2. 
-			//Make a node to record this directory's offset info and its parent's offset info. 
-			//This is used when "cd" is called. 
-			head = insertEnd( head, cur_dir_ptr, next_offset, current_offset  ); 
- 		}
+			if (is_open == 1 ){
+				printf( "Error: File system image already open. \n"); 
+			}
+			else {
+				fp = open_file( token[1] );	//Open the image file.
+				is_open = 1;  
+				getInfo(fp);			//Get the BPB info. 
+				volume = BS_VolLab;  		//Get the volume name. 
+		
+				BPBsize = getBPBsize(); 	//Calculate BPBsize for later use. 
+				unsigned int rootAddress; 	//Calculate root address. 
+				rootAddress = (BPB_NumFATs * BPB_FATSz32 * BPB_BytsPerSec) +
+						(BPB_RsvdSecCnt * BPB_BytsPerSec);  
+				getDirectories(fp, rootAddress); //Populate dir[16] with root's directories. 	
+				cur_dir_ptr = "root";		 //Set cur_dir_ptr to "root" so it can be 
+				next_offset = rootAddress;    	 //	displayed in mfs> prompt. 	
+				current_offset = 2; 		 //Set root's parent offset to 2. 
+				//Make a node to record this directory's offset info and its parent's offset info. 
+				//This is used when "cd" is called. 
+				head = insertEnd( head, cur_dir_ptr, next_offset, current_offset  ); 
+ 			}
+		}
 		//If command is "info".
 		else if (strcmp(token[0], "info") == 0)
 		{
@@ -352,11 +367,11 @@ void   getInfo(FILE *fp){
 void printInfo(void){
 
 
-	printf( "\nBPB_BytesPerSec: %d\n" , BPB_BytsPerSec );
-	printf( "BPB_SecPerClus:\t %d\n"  , BPB_SecPerClus ); 
-	printf( "BPB_RsvdSecCnt:\t %d\n"  , BPB_RsvdSecCnt ); 
-	printf( "BPB_NumFATs:\t %d\n"	  , BPB_NumFATs );  
-	printf( "BPB_FATSz32:\t %d\n"	  , BPB_FATSz32 );
+	printf( "\nBPB_BytesPerSec: %d\t%x\n" , BPB_BytsPerSec, BPB_BytsPerSec );
+	printf( "BPB_SecPerClus:\t %d\t%x\n"  , BPB_SecPerClus, BPB_SecPerClus ); 
+	printf( "BPB_RsvdSecCnt:\t %d\t%x\n"  , BPB_RsvdSecCnt, BPB_RsvdSecCnt ); 
+	printf( "BPB_NumFATs:\t %d\t%x\n" , BPB_NumFATs, BPB_NumFATs);  
+	printf( "BPB_FATSz32:\t %d\t%x\n" , BPB_FATSz32, BPB_FATSz32);
 }
 
 long    getBPBsize(void){
@@ -387,20 +402,28 @@ void getDirectories(FILE *fp, int offset){
 	}
 }
 
-
+/*
+ * Function	: get_match
+ * Parameters	: struct DirectoryEntry *directory - a pointer to list of directoryEntry structs. 
+ *		  char *filename - pointer to the filename of the file we're looking for. 
+ * Returns	: int - represents the index of the file in the struct array and filename list. 
+ * Description	: This searches the dir[16] array to find the file of interest so that we can 
+ * get that file's info and go to that file (or directory). 
+*/
 int get_match(struct DirectoryEntry *directory, char *filename){
-	int inputLength; 
-	int listNameLength; 
- 	int length[16]; 	
+	int inputLength; 		
+	int listNameLength; 	
+ 	int length[16]; 	//Stores the lengths of the filenames. 
+				//Length will be used when comparing names.
 
-	inputLength = strlen(filename); 
+	inputLength = strlen(filename); 	//get length of filename. 
 	int i = 0; 
 	int j = 0; 
 	while( i < 16 ){
-		while(j < strlen(directory[i].DIR_Name)){ 
-			if( directory[i].DIR_Name[j] == 0x20 ){
-				length[i] = j;
-				break;  
+		while(j < strlen(directory[i].DIR_Name)){ //get lengths of names in dir[16]
+			if( directory[i].DIR_Name[j] == 0x20 ){ //When we hit a space, that's 
+				length[i] = j;			//the end of the name. 
+				break;  		 
 			}
 			length[i] = j; 
 			j++; 
@@ -412,22 +435,22 @@ int get_match(struct DirectoryEntry *directory, char *filename){
 	j = 0; 
  	int match = 0; 
 	while( i < 16 ){
-		if (length[i] == inputLength){
-			j = 0;  
+		if (length[i] == inputLength){		//First see if the lengths match. 
+			j = 0;  			//If they do, see if the chars match. 
 			while(directory[i].DIR_Name[j] == filename[j]){
-				match = 1; 		
+				match = 1; 		//While the chars do match, set match = 1
 				j++; 
-				if(inputLength == j){
-					return i; 
-				}
-						
+				if(inputLength == j){	//If we've reached the end of the name, and the 
+					return i; 	// chars all matched, then it's the filename	
+				}			// we're looking for. 
+							//Return i, it's the index of the name. 
 			}
-			match = 0; 
+			match = 0; 			
 		}
-		i++;
+		i++;					//Continue down the list. 	
 	
 	}
-	return -1; 
+	return -1; 					//If no match, return -1. 
 }
 
 /*
@@ -831,104 +854,4 @@ void close_file( FILE *fp ){
 	}
 } 
 
-	
-/*
-void cd_error( ){
-	printf("Error: invalid input.\n");  
-}
-*/
 
-
-
-
-
-
-		
-	/*
-					struct Node * node; 
-					node = get_prev_node(head); 	
-					next_offset = node->dir_offset; 
-					current_offset = node->par_offset; 
-					cur_dir_ptr = node->name; 
-					head = deleteLast(head); 
-					getDirectories(fp, next_offset ); 
-					//get filename (chop off '../'
-					char *token_ptr; 
-					token_ptr = token[1]; 
-					token_ptr = token_ptr + 3; 
-					//cd mode 3 protocol
-					current_offset = next_offset; 		
-					next_offset = do_cd(fp, d, token_ptr);	//get the offset for new directory.
-					getDirectories(fp, next_offset);  
-					cur_dir_ptr = token_ptr;  
-					head = insertEnd(head, cur_dir_ptr, next_offset, current_offset); //add link to offset list.
-					
-					displayList(head); 
-				}*/
-	
-/*
- * Function	: do_ls
- * Parameters	: FILE *fp
- * Returns	: void
- * Description	: This prints the 
- */
-
-/*
-void do_ls(FILE *fp){
-	int i; 
-	printf("\n"); 
-	for ( i = 0; i < 16; i++ ){
-		if( dir[i].DIR_Attr == 0x01 || dir[i].DIR_Attr == 0x10 
-			|| dir[i].DIR_Attr == 0x20 ){ 
-			printf("%s\n", dir[i].DIR_Name); 
-		}
-	}
-	printf("\n"); 
-}
-
-*/
-/*
- * Function	: displayList
- * Parameters	: struct Node *head - pointer to linked list of offsets used.
- * Returns	: void
- * Description	: This just prints the info from the linked list that keeps track of
- * the directories we've visited. Not required by assignment specs. 
- */
-/*
-void displayList(struct Node *head){
-	struct Node *ptr = (struct Node*) malloc(sizeof(struct Node)); 
- 	ptr = head; 
-	printf("\n[ "); 
-	
-	while(ptr != NULL){
-		printf("(%d, %d) ", ptr->dir_offset, ptr->par_offset); 
-		ptr = ptr->next; 
-	}
-	printf(" ]\n"); 
-}
-*/
-/*
-struct Node * makeDummyList(struct Node *head){
-	head = insertEnd( head, 15, 40); 
-	head = insertEnd( head, 60, 30); 
-	head = insertEnd( head, 77, 10); 
-	head = insertEnd( head, 23, 24);
-	return head;  
-}
-*/
-//	if( strlen( token_ptr ) > 0 ){
-//		done = 0; 
-//	}
-//	else if ( strlen( token_ptr ) == 0 ) {
-//		done = 1;
-//	} 
-	
-/*
-	CHOPPED FROM CD_MODE 3
-
-	current_offset = next_offset; 		
-	next_offset = do_cd(fp, d, token_ptr);	//get the offset for new directory.
-	getDirectories(fp, next_offset);  
-	cur_dir_ptr = token_ptr;  
-	head = insertEnd(head, cur_dir_ptr, next_offset, current_offset); //add link to offset list.
-*/
