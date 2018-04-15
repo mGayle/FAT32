@@ -63,10 +63,11 @@ int 	do_cd(FILE*, struct DirectoryEntry *, char *);
 void 	do_volume(); 
 void 	do_ls(FILE *); 
 int 	check_cd(char *); 
-void 	cd_mode1(FILE *); 
-void 	cd_mode2(FILE *); 
-void 	cd_mode3(FILE *); 
-void 	cd_mode4(FILE *); 
+
+char * 	cd_mode1(FILE *, char *); 
+char * 	cd_mode2(FILE *, char *); 
+char *	cd_mode3(FILE *, char *); 
+char *	cd_mode4(FILE *, char *); 
 
 
 char 	BS_OEMName[8]; 
@@ -85,11 +86,20 @@ char *	dir_ptr;
 char **	array_ptr = NULL; 
 char **	make_file_list(FILE *); 
 
-char 	cur_dir[11]; 
+char 	cur_dir[11]; 		//holds the current directory name
 char * 	cur_dir_ptr;
+char	filename[11]; 		//global to help change values with functions
+char *  filename_ptr; 		
+
 
 int 	current_offset = NULL; 
 int 	next_offset = NULL;    
+
+int 	rootFlag; 	//trips when we've returned to root after a cd /filename/flskfj command
+			//so we don't return to root on the second '/'
+int 	done; 		//keeps track of whether we've processed the whole cd argument
+char *	token_ptr; 
+
 
 int main()
 {
@@ -147,28 +157,32 @@ int main()
 			do_volume(); 
 		}
 		else if (strcmp( token[0], "cd" ) == 0) {
-			int done = 0;
+			rootFlag = 0;
+			done = 0; 
 			int length = strlen(token[1]);  
+			token_ptr = token[1]; 
 			while( !done ){
 
 				int cd_mode; 
-				cd_mode = check_cd( token[1] ); 
+				cd_mode = check_cd( token_ptr ); 
 				printf("CD MODE: %d\n", cd_mode); 	
 		
 				//mode 2: cd ..
 				if( cd_mode == 2 ){
-					cd_mode2(fp); 
+					token_ptr = cd_mode2(fp, token_ptr); 
 				}
 				//mode 3: cd ../filename
 				else if( cd_mode == 3 ) {
-					cd_mode3(fp); 
+					token_ptr = cd_mode3(fp, token_ptr); 
 				}	
 				//mode 1: cd filename
 				else if( cd_mode == 1 ) {
-					cd_mode1(fp); 	
+					printf("\nIN MAIN . MODE 1 #1\n"); 
+					token_ptr = cd_mode1(fp, token_ptr);
+					printf("IN MAIN . MODE 1 #2\n");  	
 				}
 				else if( cd_mode == 4 ) {
-					cd_mode4(fp); 
+					token_ptr = cd_mode4(fp, token_ptr); 
 				}
 				else{
 					printf("SOME OTHER MODE\n"); 
@@ -286,7 +300,7 @@ void getDirectories(FILE *fp, int offset){
 	for ( i = 0; i < 16; i++ ){
 		fread( &dir[i], 32, 1, fp ); 
 	}
-	printDirectories(fp); 
+	//printDirectories(fp); 
 	
 }
 int get_match(struct DirectoryEntry *directory, char *filename){
@@ -530,21 +544,42 @@ int check_cd(char* input){
 	
 //mode1 : cd filename
 
-void cd_mode1(FILE *fp ){
-	current_offset = next_offset; 		
-	next_offset = do_cd(fp, d, token[1]);	//get the offset for new directory.
-	getDirectories(fp, next_offset);  
-	cur_dir_ptr = token[1];  
-	head = insertEnd(head, cur_dir_ptr, next_offset, current_offset); //add link to offset list.
+char * cd_mode1(FILE *fp, char* token_ptr ){
+	memset(filename, 0, 11); 	//clear out filename string
+	//parce to get filename
+	filename_ptr = filename;
+	int count = 0; 
+	int i = 0; 
+	while(i < strlen(token_ptr)){
+		if ((token_ptr[i] != '/') && (token_ptr[i] != '\0')){
+			count ++; 
+			i ++; 
+		}
+		else {
+			break; 
+		}
+	}
+	memcpy(filename_ptr, token_ptr, count); 
 	
-
-//	displayList(head);
-//	printf("MODE 3\n"); 
-}
+	current_offset = next_offset; 		
+	next_offset = do_cd(fp, d, filename_ptr);	//get the offset for new directory.
+	getDirectories(fp, next_offset);  
+	cur_dir_ptr = filename_ptr;  
+	head = insertEnd(head, cur_dir_ptr, next_offset, current_offset); //add link to offset list.
+	token_ptr = token_ptr + strlen(filename); 
+	if(strlen(token_ptr) > 0 ){
+		done = 0; 			//have we processed the whole path? 
+	}
+	else if( strlen(token_ptr) == 0 ) {
+		done = 1; 
+	}
+	rootFlag = 1; 			//so we know not to send this argument to root anytime from 
+	return token_ptr;
+} 
 
 
 //mode 2: cd ..
-void cd_mode2(FILE *fp ){			
+char * cd_mode2(FILE *fp, char *token_ptr ){			
 	struct Node * node; 
 	node = get_prev_node(head); 	
 	next_offset = node->dir_offset; 
@@ -552,38 +587,59 @@ void cd_mode2(FILE *fp ){
 	cur_dir_ptr = node->name; 
 	head = deleteLast(head); 
 				
-	getDirectories(fp, next_offset ); 
-	//displayList(head); 
-	//printf("MODE 1\n"); 
+	getDirectories(fp, next_offset );
+//	token_ptr = token_ptr + 2; 
+	printf("STRLEN TOKEN_PTR: %d\n", strlen( token_ptr )); 
+	printf("TOKEN_PTR: %s\n", token_ptr ); 
+//	if( strlen( token_ptr ) > 0 ){
+//		done = 0; 
+//	}
+//	else if ( strlen( token_ptr ) == 0 ) {
+//		done = 1;
+//	} 
+	done = 1;  
+	return token_ptr; 
 }
 
 
 //mode 3: cd ../filename
-void cd_mode3(FILE *fp ){				
-
+char * cd_mode3(FILE *fp, char *token_ptr ){				
+	rootFlag = 1; 			//so we don't treat it like cd /filename
 //get filename (chop off '../'
-	char *token_ptr; 
-	token_ptr = token[1]; 
 	token_ptr = token_ptr + 3; 
 	
-	cd_mode2(fp); 
-	//cd mode 3 protocol
+	token_ptr = cd_mode2(fp, token_ptr); 
+	token_ptr = cd_mode1(fp, token_ptr);
+
+/*
 	current_offset = next_offset; 		
 	next_offset = do_cd(fp, d, token_ptr);	//get the offset for new directory.
 	getDirectories(fp, next_offset);  
 	cur_dir_ptr = token_ptr;  
 	head = insertEnd(head, cur_dir_ptr, next_offset, current_offset); //add link to offset list.
-				
+*/
+	return token_ptr; 			
 	//displayList(head); 
 }
-void cd_mode4(FILE *fp) {
-	while( head->next->next != NULL ){
-		cd_mode2(fp); 
+char * cd_mode4(FILE *fp, char *token_ptr) {
+	if( rootFlag == 0) {	//this means we're looking at the first /. so go to root
+		while( head->next->next != NULL ){
+			token_ptr = cd_mode2(fp, token_ptr ); 
+		}
+		token_ptr = token_ptr + 1; 
+		rootFlag = 1; 	//set flag so if there's another / in the argument, we don't go back to root
 	}
-	char *token_ptr; 
-	token_ptr = token[1]; 
-	token_ptr = token_ptr + 1; 
-	
+	else if( rootFlag == 1 ){
+		token_ptr = token_ptr + 1; 
+	}
+//	token_ptr = token_ptr + 1; 
+	if(( strlen(token_ptr) > 0 )){
+		done = 0; 
+	}
+	else if(( strlen(token_ptr)) == 0 ) {
+		done = 1; 
+	}
+	return token_ptr; 	
 }
 /*
 void cd_error( ){
@@ -618,4 +674,4 @@ void cd_error( ){
 					
 					displayList(head); 
 				}*/
-		
+	
